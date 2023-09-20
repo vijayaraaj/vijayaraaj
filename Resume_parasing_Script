@@ -1,0 +1,275 @@
+#Replace the path to the predictresume2.py script(LINE-222)
+#Replace the path to the weights file-best88.pt(LINE-223)
+#Replace the path to the resume_processor.py script(LINE-248)
+import os
+import subprocess
+import time
+from PIL import Image, ImageDraw, ImageFont
+import docx2txt
+from pdf2image import convert_from_path
+import docx
+import aspose.words as aw
+from fuzzywuzzy import fuzz
+
+# Define a function to check if a folder has read permissions
+def check_folder_permissions(folder_path):
+    try:
+        # Check if the script has read access to the folder
+        if os.access(folder_path, os.R_OK):
+            return True
+        else:
+            return False
+    except OSError as e:
+        print(f"Error checking permissions: {e}")
+        return False
+
+
+# Define a function to create an output folder
+def create_output_folder(folder_path):
+    # Generate a unique folder name using a timestamp
+    timestamp = int(time.time())
+    output_folder_name = f"output_images{timestamp}"
+
+    # Create the output folder
+    output_folder_path = os.path.join(folder_path, output_folder_name)
+    os.makedirs(output_folder_path, exist_ok=True)
+
+    return output_folder_name  # Return the output folder name
+
+
+def convert_txt_to_images(txt_file, output_folder):
+    doc_filename = os.path.splitext(os.path.basename(txt_file))[0]
+    os.makedirs(output_folder, exist_ok=True)
+
+    # Read the text content from the TXT file with utf-8 encoding
+    with open(txt_file, 'r', encoding='utf-8') as file:
+        text_content = file.read()
+
+    # Split the text content into lines to fit within the image height
+    max_lines_per_image = 30  # Maximum number of lines per image
+    lines = text_content.split('\n')
+
+    # Create multiple images if the text exceeds the maximum number of lines per image
+    image_width = 800
+    line_height = 20  # Adjust the line height as needed
+
+    for i in range(0, len(lines), max_lines_per_image):
+        # Determine the range of lines for the current image
+        start_line = i
+        end_line = min(i + max_lines_per_image, len(lines))
+        lines_to_draw = lines[start_line:end_line]
+
+        # Set the image dimensions based on the number of lines
+        image_height = len(lines_to_draw) * line_height
+
+        # Create an image using PIL
+        image = Image.new('RGB', (image_width, image_height), color='white')
+        d = ImageDraw.Draw(image)
+        font_path = "arial.ttf"  # Replace "arial.ttf" with the actual font file name
+        font = ImageFont.truetype(font_path, size=12)  # Adjust the size as needed
+
+        # Draw each line of text on the image
+        for j, line in enumerate(lines_to_draw):
+            x = 10  # Left margin
+            y = j * line_height
+            d.text((x, y), line, fill='black', font=font)
+
+        # Save the image
+        image_filename = f"{doc_filename}_part{i // max_lines_per_image}.png"
+        image_path = os.path.join(output_folder, image_filename)
+
+        # Save the image with JPEG format, quality=50, and horizontal resolution=72
+        image.save(image_path, "JPEG", quality=50, dpi=(72, 72))
+
+    return [f"{doc_filename}_part{i // max_lines_per_image}.png" for i in range(0, len(lines), max_lines_per_image)]
+
+
+def convert_html_to_images(html_file, output_folder):
+    doc = aw.Document(html_file)
+    images = []
+    os.makedirs(output_folder, exist_ok=True)
+
+    # Specify image save options
+    imageOptions = aw.saving.ImageSaveOptions(aw.SaveFormat.JPEG)
+    imageOptions.jpeg_quality = 100
+    imageOptions.horizontal_resolution = 72
+
+    # Save each page as a JPG image
+    for page in range(doc.page_count):
+        extracted_page = doc.extract_pages(page, 1)
+        output_file = f"{os.path.splitext(os.path.basename(html_file))[0]}_{page + 1}.jpg"
+        output_path = os.path.join(output_folder, output_file)
+        extracted_page.save(output_path, imageOptions)
+        images.append(output_file)
+
+    return images
+
+
+def convert_docx_to_images(docx_file, output_folder):
+    doc_filename = os.path.splitext(os.path.basename(docx_file))[0]
+    doc = Document(docx_file)
+    images = []
+    pdf_file = os.path.join(output_folder, "temp_page.pdf")
+    os.makedirs(output_folder, exist_ok=True)
+
+    # Convert Word document to PDF
+    convert_docx_to_pdf(docx_file, pdf_file)
+
+    # Convert PDF pages to images
+    images = convert_from_path(pdf_file)
+
+    # Save each image
+    image_filenames = []
+    for i, image in enumerate(images):
+        image_filename = f"{doc_filename}_page_{i + 1}.png"  # Output image filename
+        image_path = os.path.join(output_folder, image_filename)
+        image.save(image_path, "PNG")
+        image_filenames.append(image_filename)
+
+    return image_filenames
+
+
+def convert_pdf_to_images(pdf_file, output_folder):
+    doc_filename = os.path.splitext(os.path.basename(pdf_file))[0]
+    os.makedirs(output_folder, exist_ok=True)
+
+    # Convert PDF pages to images
+    images = convert_from_path(pdf_file)
+
+    # Save each image
+    image_filenames = []
+    for i, image in enumerate(images):
+        image_filename = f"{doc_filename}_page_{i + 1}.png"  # Output image filename
+        image_path = os.path.join(output_folder, image_filename)
+        image.save(image_path, "PNG")
+        image_filenames.append(image_filename)
+
+    return image_filenames
+
+
+# Define a function to convert and store files in the output folder
+def convert_and_store(input_path, output_folder):
+    images = []
+
+    if os.path.isfile(input_path):
+        if input_path.lower().endswith(".html"):
+            images = convert_html_to_images(input_path, output_folder)
+        elif input_path.lower().endswith(".docx"):
+            images = convert_docx_to_images(input_path, output_folder)
+        elif input_path.lower().endswith(".pdf"):
+            images = convert_pdf_to_images(input_path, output_folder)
+        elif input_path.lower().endswith(".txt"):
+            images = convert_txt_to_images(input_path, output_folder)
+    elif os.path.isdir(input_path):
+        for filename in os.listdir(input_path):
+            file_path = os.path.join(input_path, filename)
+            if os.path.isfile(file_path):
+                if filename.lower().endswith((".html", ".docx", ".pdf")):
+                    image_files = convert_and_store(file_path, output_folder)
+                    images.extend(image_files)
+                elif filename.lower().endswith(".txt"):
+                    image_files = convert_txt_to_images(file_path, output_folder)
+                    images.extend(image_files)
+
+    return images
+
+
+def get_folder_path_from_user():
+    # Prompt the user for the folder path
+    folder_path = input("Enter the folder path contain resumes: ")
+
+    return folder_path
+
+
+def main():
+    # Get the folder path from the user
+    folder_path = get_folder_path_from_user()
+    # Check if the folder has read permissions
+    if check_folder_permissions(folder_path):
+        print(f"The folder '{folder_path}' has read permissions.")
+    else:
+        print(f"The folder '{folder_path}' does not have read permissions or does not exist.")
+        return
+
+    # Create the output folder
+    output_folder_name = create_output_folder(folder_path)
+    output_folder_path = os.path.join(folder_path, output_folder_name)
+    print("Output folder created:", output_folder_path)
+
+    # Check if the folder path is valid
+    if not os.path.isdir(folder_path):
+        print("Invalid folder path. Please provide a valid path to the folder containing files.")
+        return
+
+    # Get the list of files in the folder
+    files_folder = os.listdir(folder_path)
+
+    # Check if any image file (PNG or JPG) exists in the folder
+    image_files_list = [file for file in files_folder if file.lower().endswith(('.png', '.jpg', '.jpeg'))]
+
+    if image_files_list:
+        print('Folder path contains images.')
+        source_folder = folder_path
+        print('Source folder:', source_folder)
+    else:
+        # Convert non-JSON files to images
+        converted_images = convert_and_store(folder_path, output_folder_path)
+        print(f"Converted {len(converted_images)} files to images in {output_folder_path}.")
+        source_folder = output_folder_path
+
+    print("Output images folder path:", source_folder)
+    # Define the path to the predictresume2.py script and the weights file
+    predict_script_path = r"I:\Downloads\predictresume2.py"
+    weights_path = r"I:\Downloads\best88.pt"
+
+    # Construct the command to execute predictresume2.py with the source folder as an argument
+    predict_command = f"python \"{predict_script_path}\" --weights \"{weights_path}\" --source \"{source_folder}\""
+
+    # Execute the predictresume2.py script
+    try:
+        import subprocess
+        process = subprocess.run(predict_command, shell=True, capture_output=True, text=True)
+
+        if process.returncode == 0:
+            print("Prediction script executed successfully.")
+            print("Standard Output:")
+            print(process.stdout)
+            # Extracted JSON file path from the output (if available)
+            json_file_path = None
+            for line in process.stdout.split('\n'):
+                if line.startswith("Text results saved to:"):
+                    json_file_path = line.split("Text results saved to:")[-1].strip()
+                    break
+
+            if json_file_path:
+                print("JSON file path:", json_file_path)
+                import subprocess
+                # Replace 'module_path' with the actual paths you want to use
+                module_path = r"C:\Users\Vijay\Desktop\resume_processor.py"
+                # Get the path to the currently active Python interpreter
+                python_executable = sys.executable
+                second_command = [python_executable, module_path, json_file_path]
+                # Now, execute the Python script with both paths as arguments
+                second_process = subprocess.run(second_command, capture_output=True, text=True)
+
+                if second_process.returncode == 0:
+                    print("Second script executed successfully.")
+                    print("Standard Output (Second Script):")
+                    print(second_process.stdout)
+                else:
+                    print("Error occurred while executing the second script.")
+                    print("Standard Error (Second Script):")
+                    print(second_process.stderr)
+        else:
+            print("Error occurred while executing the prediction script.")
+            print("Standard Error:")
+            print(process.stderr)
+
+    except subprocess.TimeoutExpired:
+        print("Timeout: The prediction script took too long to execute.")
+    except Exception as e:
+        print(f"An error occurred during subprocess execution: {e}")
+
+
+if __name__ == "__main__":
+    main()
