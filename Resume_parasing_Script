@@ -1,6 +1,6 @@
-#Replace the path to the predictresume2.py script(LINE-222)
-#Replace the path to the weights file-best88.pt(LINE-223)
-#Replace the path to the resume_processor.py script(LINE-248)
+#Replace the path to the predictresume2.py script(LINE-223)
+#Replace the path to the weights file-best88.pt(LINE-224)
+#Replace the path to the resume_processor.py script(LINE-249)
 import os
 import subprocess
 import time
@@ -10,6 +10,7 @@ from pdf2image import convert_from_path
 import docx
 import aspose.words as aw
 from fuzzywuzzy import fuzz
+import sys
 
 # Define a function to check if a folder has read permissions
 def check_folder_permissions(folder_path):
